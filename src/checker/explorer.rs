@@ -98,6 +98,54 @@ where
     serve_checker(checker, snapshot_for_server, addresses)
 }
 
+pub(crate) fn serve_simulation<M>(
+    checker_builder: CheckerBuilder<M>,
+    addresses: impl ToSocketAddrs,
+    seed: u64,
+) -> Arc<impl Checker<M>>
+where
+    M: 'static + Model + Send + Sync,
+    M::Action: Debug + Send + Sync,
+    M::State: Debug + Hash + Send + Sync,
+{
+    let snapshot = Arc::new(RwLock::new(Snapshot(true, None)));
+    let snapshot_for_visitor = Arc::clone(&snapshot);
+    let snapshot_for_server = Arc::clone(&snapshot);
+    spawn(move || loop {
+        sleep(Duration::from_secs(20));
+        snapshot.write().0 = true;
+    });
+    let checker = checker_builder
+        .visitor(snapshot_for_visitor)
+        .spawn_simulation(seed, UniformChooser);
+    log::debug!(
+        "Served checker is spawned in spawn_simulation(). The random seed is {}",
+        seed
+    );
+    serve_checker(checker, snapshot_for_server, addresses)
+}
+
+pub(crate) fn serve_bfs<M>(
+    checker_builder: CheckerBuilder<M>,
+    addresses: impl ToSocketAddrs,
+) -> Arc<impl Checker<M>>
+where
+    M: 'static + Model + Send + Sync,
+    M::Action: Debug + Send + Sync,
+    M::State: Debug + Hash + Send + Sync,
+{
+    let snapshot = Arc::new(RwLock::new(Snapshot(true, None)));
+    let snapshot_for_visitor = Arc::clone(&snapshot);
+    let snapshot_for_server = Arc::clone(&snapshot);
+    spawn(move || loop {
+        sleep(Duration::from_secs(20));
+        snapshot.write().0 = true;
+    });
+    let checker = checker_builder.visitor(snapshot_for_visitor).spawn_bfs();
+    log::debug!("Served checker is spawned in spawn_bfs().");
+    serve_checker(checker, snapshot_for_server, addresses)
+}
+
 fn serve_checker<M, C>(
     checker: C,
     snapshot: Arc<RwLock<Snapshot<M::Action>>>,

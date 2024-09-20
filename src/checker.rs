@@ -150,6 +150,35 @@ impl<M: Model> CheckerBuilder<M> {
         explorer::serve(self, addresses)
     }
 
+    /// Starts a web service for interactively exploring a model ([demo](http://demo.stateright.rs:3000/)).
+    /// This acts the same as serve, but instead of spawning checker on demand, this function spawns checker in simulation mode.
+    pub fn serve_simulation(
+        self,
+        addresses: impl std::net::ToSocketAddrs,
+        seed: u64,
+    ) -> std::sync::Arc<impl Checker<M>>
+    where
+        M: 'static + Model + Send + Sync,
+        M::Action: Debug + Send + Sync,
+        M::State: Debug + Hash + Send + Sync,
+    {
+        explorer::serve_simulation(self, addresses, seed)
+    }
+
+    /// Starts a web service for interactively exploring a model ([demo](http://demo.stateright.rs:3000/)).
+    /// This acts the same as serve, but instead of spawning checker on demand, this function spawns checker in bfs.
+    pub fn serve_bfs(
+        self,
+        addresses: impl std::net::ToSocketAddrs,
+    ) -> std::sync::Arc<impl Checker<M>>
+    where
+        M: 'static + Model + Send + Sync,
+        M::Action: Debug + Send + Sync,
+        M::State: Debug + Hash + Send + Sync,
+    {
+        explorer::serve_bfs(self, addresses)
+    }
+
     /// Spawns a breadth-first search model checker. This traversal strategy uses more memory than
     /// [`CheckerBuilder::spawn_dfs`] but will find the shortest [`Path`] to each discovery if
     /// checking is single threadeded (the default behavior, which [`CheckerBuilder::threads`]
