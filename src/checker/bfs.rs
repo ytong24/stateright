@@ -39,6 +39,7 @@ where
 {
     pub(crate) fn spawn(options: CheckerBuilder<M>) -> Self {
         let model = Arc::new(options.model);
+        let symmetry = options.symmetry;
         let target_state_count = options.target_state_count;
         let target_max_depth = options.target_max_depth;
         let thread_count = options.thread_count;
@@ -56,7 +57,11 @@ where
         let generated = Arc::new({
             let generated = DashMap::default();
             for s in &init_states {
-                generated.insert(fingerprint(s), None);
+                if let Some(representative) = symmetry {
+                    generated.insert(fingerprint(&representative(s)), None);
+                } else {
+                    generated.insert(fingerprint(s), None);
+                }
             }
             generated
         });
@@ -130,6 +135,7 @@ where
                                 1500,
                                 target_max_depth,
                                 &max_depth,
+                                symmetry,
                             );
                             if finish_when.matches(
                                 &discoveries.iter().map(|r| *r.key()).collect(),
@@ -188,6 +194,7 @@ where
         mut max_count: usize,
         target_max_depth: Option<NonZeroUsize>,
         global_max_depth: &AtomicUsize,
+        symmetry: Option<fn(&M::State) -> M::State>,
     ) {
         let properties = model.properties();
 
@@ -298,9 +305,13 @@ where
                 // property held on the path leading to the first visit as meaning
                 // that it holds in the path leading to the second visit -- another
                 // possible false-negative.
-                let next_fingerprint = fingerprint(&next_state);
+                let next_fingerprint = if let Some(representative) = symmetry {
+                    fingerprint(&representative(&next_state))
+                } else {
+                    fingerprint(&next_state)
+                };
                 if let Entry::Vacant(next_entry) = generated.entry(next_fingerprint) {
-                    next_entry.insert(Some(state_fp));
+                    next_entry.insert(Some(state_fp)); // key-value: {next_fp: cur_fp}
                 } else {
                     // FIXME: arriving at an already-known state may be a loop (in which case it
                     // could, in a fancier implementation, be considered a terminal state for

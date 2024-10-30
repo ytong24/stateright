@@ -257,6 +257,8 @@ where
 
     fn actions(&self, state: &Self::State, actions: &mut Vec<Self::Action>) {
         let mut prev_channel = None; // Only deliver the head of a channel.
+                                     // iter_deliverable() is iterating over a BTreeMap, so if two envelopes have the same src and dst, they have to be seen right each other.
+                                     // that's why a prev_channel var is enough.
         for env in state.network.iter_deliverable() {
             // option 1: message is lost
             if self.lossy_network == LossyNetwork::Yes {
@@ -1138,7 +1140,10 @@ mod test {
             .into_iter()
             .map(|s| (*s.actor_states[1]).clone())
             .collect();
-        assert_eq!(recipient_states, BTreeSet::from([vec![], vec![2], vec![2, 1]]));
+        assert_eq!(
+            recipient_states,
+            BTreeSet::from([vec![], vec![2], vec![2, 1]])
+        );
 
         // More states if network is not ordered.
         let (recorder, accessor) = StateRecorder::new_with_accessor();
