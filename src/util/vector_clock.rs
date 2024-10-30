@@ -37,6 +37,11 @@ impl VectorClock {
         self.0[index] += 1;
         self
     }
+
+    /// Get the inner vec of VectorClock to rewrite it easily
+    pub fn get_inner(&self) -> &Vec<u32> {
+        &self.0
+    }
 }
 
 impl Display for VectorClock {
