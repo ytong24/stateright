@@ -338,6 +338,13 @@ where
                 for (i, property) in properties.iter().enumerate() {
                     if ebits.contains(i) {
                         // Races other threads, but that's fine.
+                        if discoveries.contains_key(property.name) {
+                            // Avoid overwriting the value if an "Eventually" property discovery already exists.
+                            // Since the property checks above will skip validation if a corresponding discovery exists,
+                            // it’s possible for the ebits not getting updated due to the validation skip, which enter this branch unexpectedly.
+                            // Thus, a problematic state could be overwritten by a valid one if overwriting is allowed, leading to incorrect information in the error output.
+                            continue;
+                        }
                         discoveries.insert(property.name, state_fp);
                     }
                 }
