@@ -19,10 +19,11 @@ pub struct ActorModelState<A: Actor, H = ()> {
     pub random_choices: Vec<RandomChoices<A::Random>>,
     pub crashed: Vec<bool>,
     pub history: H,
+    pub actor_storages: Vec<Option<A::Storage>>,
 }
 
 /// Represents a set of random choices for one actor.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Hash, Eq, PartialEq)]
 pub struct RandomChoices<Random> {
     /// The map of random choices for an actor.
     ///
@@ -68,16 +69,19 @@ where
     A::Msg: serde::Serialize,
     A::Timer: serde::Serialize,
     A::Random: serde::Serialize,
+    A::Storage: serde::Serialize,
     H: serde::Serialize,
 {
     fn serialize<Ser: serde::Serializer>(&self, ser: Ser) -> Result<Ser::Ok, Ser::Error> {
         use serde::ser::SerializeStruct;
-        let mut out = ser.serialize_struct("ActorModelState", 4)?;
+        let mut out = ser.serialize_struct("ActorModelState", 7)?;
         out.serialize_field("actor_states", &self.actor_states)?;
         out.serialize_field("network", &self.network)?;
-        out.serialize_field("is_timer_set", &self.timers_set)?;
+        out.serialize_field("timers_set", &self.timers_set)?;
         out.serialize_field("random_choices", &self.random_choices)?;
+        out.serialize_field("crashed", &self.crashed)?;
         out.serialize_field("history", &self.history)?;
+        out.serialize_field("storages", &self.actor_storages)?;
         out.end()
     }
 }
@@ -97,6 +101,7 @@ where
             random_choices: self.random_choices.clone(),
             network: self.network.clone(),
             crashed: self.crashed.clone(),
+            actor_storages: self.actor_storages.clone(),
         }
     }
 }
@@ -112,9 +117,11 @@ where
         let mut builder = f.debug_struct("ActorModelState");
         builder.field("actor_states", &self.actor_states);
         builder.field("history", &self.history);
-        builder.field("is_timer_set", &self.timers_set);
+        builder.field("timers_set", &self.timers_set);
         builder.field("random_choices", &self.random_choices);
         builder.field("network", &self.network);
+        builder.field("crashed", &self.crashed);
+        builder.field("storages", &self.actor_storages);
         builder.finish()
     }
 }
@@ -140,7 +147,10 @@ where
         self.actor_states.hash(state);
         self.history.hash(state);
         self.timers_set.hash(state);
+        self.random_choices.hash(state);
         self.network.hash(state);
+        self.crashed.hash(state);
+        self.actor_storages.hash(state);
     }
 }
 
@@ -156,7 +166,10 @@ where
         self.actor_states.eq(&other.actor_states)
             && self.history.eq(&other.history)
             && self.timers_set.eq(&other.timers_set)
+            && self.random_choices.eq(&other.random_choices)
             && self.network.eq(&other.network)
+            && self.crashed.eq(&other.crashed)
+            && self.actor_storages.eq(&other.actor_storages)
     }
 }
 
@@ -166,6 +179,7 @@ where
     A::Msg: Rewrite<Id>,
     A::State: Ord + Rewrite<Id>,
     A::Random: Rewrite<Id>,
+    A::Storage: Rewrite<Id>,
     H: Rewrite<Id>,
 {
     fn representative(&self) -> Self {
@@ -176,6 +190,7 @@ where
             timers_set: plan.reindex(&self.timers_set),
             random_choices: plan.reindex(&self.random_choices),
             crashed: plan.reindex(&self.crashed),
+            actor_storages: plan.reindex(&self.actor_storages),
             history: self.history.rewrite(&plan),
         }
     }
@@ -227,6 +242,7 @@ mod test {
                     1.into(), 2.into(),
                 ],
             },
+            actor_storages: vec![None; 3],
         };
         let representative_state = state.representative();
         // The chosen rewrite plan is:
@@ -266,7 +282,7 @@ mod test {
                     0.into(), 1.into(),
                 ],
             },
-        });
+        actor_storages: vec![None; 3],});
     }
 
     struct A;
@@ -275,7 +291,13 @@ mod test {
         type State = ActorState;
         type Timer = ();
         type Random = ();
-        fn on_start(&self, _id: Id, _o: &mut Out<Self>) -> Self::State {
+        type Storage = ();
+        fn on_start(
+            &self,
+            _id: Id,
+            _storage: &Option<Self::Storage>,
+            _o: &mut Out<Self>,
+        ) -> Self::State {
             unimplemented!();
         }
     }
