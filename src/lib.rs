@@ -146,6 +146,7 @@ mod test_util;
 pub mod actor;
 pub use checker::*;
 pub use has_discoveries::HasDiscoveries;
+pub mod refinement_mapping;
 pub mod semantics;
 pub mod util;
 
