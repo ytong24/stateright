@@ -188,13 +188,13 @@ mod min_max1 {
 
     use crate::min_max2;
 
-    #[derive(Clone, Hash, PartialEq)]
+    #[derive(Debug, Clone, Hash, PartialEq)]
     pub(crate) enum Turn {
         Input,
         Output,
     }
 
-    #[derive(Clone, Hash, PartialEq)]
+    #[derive(Debug, Clone, Hash, PartialEq)]
     pub(crate) enum Response {
         Lo,
         Hi,
@@ -202,13 +202,13 @@ mod min_max1 {
         None,
     }
 
-    #[derive(Clone, Hash, PartialEq)]
+    #[derive(Debug, Clone, Hash, PartialEq)]
     pub(crate) enum XType {
         Input(usize),
         Output(Response),
     }
 
-    #[derive(Clone, Hash, PartialEq)]
+    #[derive(Debug, Clone, Hash, PartialEq)]
     pub(crate) struct MinMax1State {
         pub x: Option<XType>,
         pub turn: Turn,
@@ -217,7 +217,7 @@ mod min_max1 {
         pub idx: usize,
     }
 
-    #[derive(Clone, PartialEq)]
+    #[derive(Debug, Clone, PartialEq)]
     pub(crate) enum MinMax1Action {
         InputNum,
         Respond,
@@ -338,13 +338,13 @@ mod min_max2 {
 
     use crate::min_max1;
 
-    #[derive(Clone, Hash, PartialEq)]
+    #[derive(Debug, Clone, Hash, PartialEq)]
     pub(crate) enum Turn {
         Input,
         Output,
     }
 
-    #[derive(Clone, Hash, PartialEq)]
+    #[derive(Debug, Clone, Hash, PartialEq)]
     pub(crate) enum Response {
         Lo,
         Hi,
@@ -352,13 +352,13 @@ mod min_max2 {
         None,
     }
 
-    #[derive(Clone, Hash, PartialEq)]
+    #[derive(Debug, Clone, Hash, PartialEq)]
     pub(crate) enum XType {
         Input(usize),
         Output(Response),
     }
 
-    #[derive(Clone, Hash, PartialEq)]
+    #[derive(Debug, Clone, Hash, PartialEq)]
     pub(crate) struct MinMax2State {
         pub x: Option<XType>,
         pub turn: Turn,
@@ -368,7 +368,7 @@ mod min_max2 {
         pub idx: usize,
     }
 
-    #[derive(Clone, PartialEq)]
+    #[derive(Debug, Clone, PartialEq)]
     pub(crate) enum MinMax2Action {
         InputNum,
         Respond,
@@ -555,6 +555,25 @@ mod one_refine_two {
 
         checker
     }
+
+    pub fn refinement_serve(
+        user_input: Vec<usize>,
+    ) -> std::sync::Arc<impl Checker<RefinementModel<MinMax1, MinMax2, Mapper1to2>>> {
+        let concrete = MinMax1 {
+            user_input: user_input.clone(),
+        };
+        let abstractt = MinMax2 { user_input };
+        let mapper = Mapper1to2 {
+            abstract_model: abstractt,
+        };
+        let refinement_model = RefinementModel::new(concrete, mapper);
+        let checker = refinement_model
+            .checker()
+            .threads(num_cpus::get())
+            .serve("127.0.0.1:3000");
+
+        checker
+    }
 }
 
 mod two_refine_one {
@@ -598,23 +617,36 @@ mod two_refine_one {
 
         fn advance_aux_state(
             &self,
-            _last_concrete: &<MinMax2 as stateright::Model>::State,
+            last_concrete: &<MinMax2 as stateright::Model>::State,
             last_aux: &Self::AuxState,
             action: &<MinMax2 as stateright::Model>::Action,
-            next_concrete: &<MinMax2 as stateright::Model>::State,
+            _next_concrete: &<MinMax2 as stateright::Model>::State,
         ) -> Self::AuxState {
             let mut new_aux = last_aux.clone();
 
+            // NOTE: the following code is incorrect for the refinement mapping. Using the code will fail the refinement model checking.
+            // match action {
+            //     MinMax2Action::InputNum => {
+            //         // the newly inserted number is the next_concrete.x
+            //         if let Some(XType::Input(n)) = next_concrete.x {
+            //             new_aux.push(n);
+            //         } else {
+            //             panic!("State transition doesn't match with action. Action is InputNum, but next_state.x is not XType::Input.")
+            //         }
+            //     }
+            //     MinMax2Action::Respond => {} // no update is needed if action is Respond
+            // }
+
             match action {
-                MinMax2Action::InputNum => {
-                    // the newly inserted number is the next_concrete.x
-                    if let Some(XType::Input(n)) = next_concrete.x {
+                MinMax2Action::InputNum => {} // no update is needed if action is InputNum
+                MinMax2Action::Respond => {
+                    // the newly inserted number is the last_concrete.x
+                    if let Some(XType::Input(n)) = last_concrete.x {
                         new_aux.push(n);
                     } else {
-                        panic!("State transition doesn't match with action. Action is InputNum, but next_state.x is not XType::Input.")
+                        panic!("State transition doesn't match with action. Action is Respond, but last_concrete.x is not XType::Input.")
                     }
                 }
-                MinMax2Action::Respond => {} // no update is needed if action is Respond
             }
 
             new_aux
@@ -652,6 +684,25 @@ mod two_refine_one {
 
         checker
     }
+
+    pub fn refinement_serve(
+        user_input: Vec<usize>,
+    ) -> std::sync::Arc<impl Checker<RefinementModel<MinMax2, MinMax1, Mapper2to1>>> {
+        let concrete = MinMax2 {
+            user_input: user_input.clone(),
+        };
+        let abstractt = MinMax1 { user_input };
+        let mapper = Mapper2to1 {
+            abstract_model: abstractt,
+        };
+        let refinement_model = RefinementModel::new(concrete, mapper);
+        let checker = refinement_model
+            .checker()
+            .threads(num_cpus::get())
+            .serve("127.0.0.1:3000");
+
+        checker
+    }
 }
 
 fn main() -> Result<(), pico_args::Error> {
@@ -669,6 +720,18 @@ fn main() -> Result<(), pico_args::Error> {
             println!("Checking refinement from MinMax2 to MinMax1...");
             let checker = two_refine_one::refinement_checker(user_input).join();
             println!("Finish. State count: {}", checker.state_count());
+        }
+        Some("12-serve") => {
+            println!(
+                "Checking refinement from MinMax1 to MinMax2. Serving on: http://127.0.0.1:3000"
+            );
+            one_refine_two::refinement_serve(user_input);
+        }
+        Some("21-serve") => {
+            println!(
+                "Checking refinement from MinMax2 to MinMax1. Serving on: http://127.0.0.1:3000"
+            );
+            two_refine_one::refinement_serve(user_input);
         }
         _ => {
             println!("USAGE:");
