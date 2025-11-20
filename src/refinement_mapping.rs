@@ -1,5 +1,6 @@
 use crate::{fingerprint, Model, Property};
 use std::{
+    collections::HashMap,
     fmt::{Debug, Write},
     hash::Hash,
     marker::PhantomData,
@@ -205,26 +206,16 @@ where
             return None;
         }
 
-        struct Node {
-            x: usize,
-            y: usize,
+        #[derive(Clone)]
+        struct NodeMeta {
             label: String,
             title: String,
         }
 
-        let node_count = steps.len();
-        let horizontal_gap = 150usize;
-        let vertical_gap = 160usize;
-        let left_padding = 140usize;
-        let right_padding = 120usize;
-        let top_padding = 80usize;
-        let radius = 22usize;
-        let width = left_padding
-            + right_padding
-            + horizontal_gap.saturating_mul(node_count.saturating_sub(1));
-        let height = top_padding * 2 + vertical_gap;
-        let abstract_y = top_padding;
-        let concrete_y = top_padding + vertical_gap;
+        let mut abstract_slots: HashMap<u64, usize> = HashMap::new();
+        let mut abstract_nodes = Vec::new();
+        let mut concrete_nodes = Vec::new();
+        let mut mapping_slots = Vec::new();
 
         let build_title = |kind: &str, idx: usize, fp: u64, value: String| -> String {
             format!(
@@ -233,35 +224,52 @@ where
             )
         };
 
-        let mut abstract_nodes = Vec::with_capacity(node_count);
-        let mut concrete_nodes = Vec::with_capacity(node_count);
-        for (idx, (state, _)) in steps.iter().enumerate() {
-            let x = left_padding + idx * horizontal_gap;
-            let abstract_fp = fingerprint(&state.mapped_abstract_state).get();
+        for (step_idx, (state, _)) in steps.iter().enumerate() {
+            // Concrete node metadata always uses the step index.
             let concrete_fp = fingerprint(&state.concrete_state).get();
-            abstract_nodes.push(Node {
-                x,
-                y: abstract_y,
-                label: format!("A{idx}"),
-                title: build_title(
-                    "Abstract",
-                    idx,
-                    abstract_fp,
-                    format!("{:#?}", state.mapped_abstract_state),
-                ),
-            });
-            concrete_nodes.push(Node {
-                x,
-                y: concrete_y,
-                label: format!("C{idx}"),
+            concrete_nodes.push(NodeMeta {
+                label: format!("C{step_idx}"),
                 title: build_title(
                     "Concrete",
-                    idx,
+                    step_idx,
                     concrete_fp,
                     format!("{:#?}", state.concrete_state),
                 ),
             });
+
+            // Abstract nodes dedupe via fingerprint/slot.
+            let abstract_fp = fingerprint(&state.mapped_abstract_state).get();
+            let slot = *abstract_slots.entry(abstract_fp).or_insert_with(|| {
+                let slot_idx = abstract_nodes.len();
+                abstract_nodes.push(NodeMeta {
+                    label: format!("A{slot_idx}"),
+                    title: build_title(
+                        "Abstract",
+                        slot_idx,
+                        abstract_fp,
+                        format!("{:#?}", state.mapped_abstract_state),
+                    ),
+                });
+                slot_idx
+            });
+            mapping_slots.push(slot);
         }
+
+        let horizontal_gap = 150usize;
+        let vertical_gap = 160usize;
+        let left_padding = 140usize;
+        let right_padding = 120usize;
+        let top_padding = 80usize;
+        let radius = 22usize;
+
+        let span = std::cmp::max(
+            abstract_nodes.len().saturating_sub(1),
+            concrete_nodes.len().saturating_sub(1),
+        );
+        let width = left_padding + right_padding + horizontal_gap.saturating_mul(span);
+        let height = top_padding * 2 + vertical_gap;
+        let abstract_y = top_padding;
+        let concrete_y = top_padding + vertical_gap;
 
         let mut svg = String::new();
         let _ = write!(
@@ -279,47 +287,75 @@ where
       );
         let _ = write!(
             &mut svg,
-            "<text class='svg-ref-label' x='20' y='{abstract_y}'>Abstract</text>\
-           <text class='svg-ref-label' x='20' y='{concrete_y}'>Concrete+Aux</text>"
+            "<text class='svg-ref-label' x='20' y='{abstract_y}'>Abstract Model</text>\
+           <text class='svg-ref-label' x='20' y='{concrete_y}'>Concrete Model</text>"
         );
 
-        for nodes in [&abstract_nodes, &concrete_nodes] {
-            for window in nodes.windows(2) {
-                if let [left, right] = window {
-                    let _ = write!(
-                      &mut svg,
-                      "<line x1='{x1}' y1='{y1}' x2='{x2}' y2='{y2}' class='svg-ref-edge' marker-end='url(#refinement-arrow)'/>",
-                      x1 = left.x,
-                      y1 = left.y,
-                      x2 = right.x,
-                      y2 = right.y
-                  );
-                }
+        // Concrete transition edges (solid, sequential).
+        for window in (0..concrete_nodes.len()).collect::<Vec<_>>().windows(2) {
+            if let [left, right] = window {
+                let _ = write!(
+                  &mut svg,
+                  "<line x1='{x1}' y1='{con_y}' x2='{x2}' y2='{con_y}' class='svg-ref-edge' marker-end='url(#refinement-arrow)'/>",
+                  x1 = left_padding + left * horizontal_gap,
+                  x2 = left_padding + right * horizontal_gap,
+                  con_y = concrete_y,
+              );
             }
         }
 
-        for (abstract_node, concrete_node) in abstract_nodes.iter().zip(concrete_nodes.iter()) {
+        // Abstract transition edges (solid between slot ordering).
+        for window in (0..abstract_nodes.len()).collect::<Vec<_>>().windows(2) {
+            if let [left, right] = window {
+                let _ = write!(
+                  &mut svg,
+                  "<line x1='{x1}' y1='{abs_y}' x2='{x2}' y2='{abs_y}' class='svg-ref-edge' marker-end='url(#refinement-arrow)'/>",
+                  x1 = left_padding + left * horizontal_gap,
+                  x2 = left_padding + right * horizontal_gap,
+                  abs_y = abstract_y,
+              );
+            }
+        }
+
+        // Mapping lines from each concrete state to its abstract slot.
+        for (step_idx, slot_idx) in mapping_slots.into_iter().enumerate() {
             let _ = write!(
                 &mut svg,
-                "<line x1='{x}' y1='{y1}' x2='{x}' y2='{y2}' class='svg-ref-mapping-line'/>",
-                x = abstract_node.x,
-                y1 = abstract_node.y + radius,
-                y2 = concrete_node.y - radius
+                "<line x1='{x1}' y1='{y1}' x2='{x2}' y2='{y2}' class='svg-ref-mapping-line'/>",
+                x1 = left_padding + step_idx * horizontal_gap,
+                y1 = concrete_y - radius,
+                x2 = left_padding + slot_idx * horizontal_gap,
+                y2 = abstract_y + radius,
             );
         }
 
-        for node in abstract_nodes.iter().chain(concrete_nodes.iter()) {
+        // Emit abstract circles.
+        for (slot_idx, node) in abstract_nodes.iter().enumerate() {
+            let x = left_padding + slot_idx * horizontal_gap;
             let _ = write!(
                 &mut svg,
                 "<g class='svg-ref-node'>\
-                 <circle class='svg-ref-state-circle' cx='{x}' cy='{y}' r='{radius}'>\
+                 <circle class='svg-ref-state-circle' cx='{x}' cy='{abstract_y}' r='{radius}'>\
                    <title>{title}</title>\
                  </circle>\
-                 <text class='svg-ref-state-text' x='{x}' y='{y}'>{label}</text>\
+                 <text class='svg-ref-state-text' x='{x}' y='{abstract_y}'>{label}</text>\
                </g>",
-                x = node.x,
-                y = node.y,
-                radius = radius,
+                title = Self::escape_html(&node.title),
+                label = Self::escape_html(&node.label),
+            );
+        }
+
+        // Emit concrete circles.
+        for (step_idx, node) in concrete_nodes.iter().enumerate() {
+            let x = left_padding + step_idx * horizontal_gap;
+            let _ = write!(
+                &mut svg,
+                "<g class='svg-ref-node'>\
+                 <circle class='svg-ref-state-circle' cx='{x}' cy='{concrete_y}' r='{radius}'>\
+                   <title>{title}</title>\
+                 </circle>\
+                 <text class='svg-ref-state-text' x='{x}' y='{concrete_y}'>{label}</text>\
+               </g>",
                 title = Self::escape_html(&node.title),
                 label = Self::escape_html(&node.label),
             );
