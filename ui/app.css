@@ -214,3 +214,11 @@ ul {
     stroke-dasharray: 6 4;
     stroke-width: 1.5;
 }
+.svg-ref-edge-invalid {
+    stroke-dasharray: 6 4;
+    stroke: var(--fg-lit);
+}
+.svg-ref-invalid-cross {
+    stroke: var(--contrast-brt);
+    stroke-width: 2;
+}
