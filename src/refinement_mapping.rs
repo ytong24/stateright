@@ -6,12 +6,36 @@ use std::{
     marker::PhantomData,
 };
 
+/// A refinement mapping from concrete model `C` into abstract model `A`.
+///
+/// A refinement mapping is defined by:
+///
+/// - an [`AuxState`](Self::AuxState) that evolves alongside the concrete
+///   execution (Lamport's *auxiliary variables* — see Abadi & Lamport,
+///   "The Existence of Refinement Mappings", 1991);
+/// - [`refinement_map`](Self::refinement_map): the function `f` that picks
+///   the abstract-state representative for a given `(concrete, aux)` pair;
+/// - [`Observable`](Self::Observable) + [`observe`](Self::observe): the
+///   observable interface — the contract the refinement preserves. The
+///   refinement check compares only observations, so `Observable` names
+///   what the concrete is required to simulate about the abstract.
+///
+/// Strict L-simulation is the special case where
+/// `type Observable = A::State` and `fn observe(a) { a.clone() }` — every
+/// field of the mapped abstract state is part of the contract. Choosing a
+/// smaller `Observable` projects internal bookkeeping out of the check.
 pub trait RefinementMapping<C, A>
 where
     C: Model,
     A: Model,
 {
-    type AuxState; // the auxiliary state for concrete model
+    /// Auxiliary / history state carried alongside the concrete execution.
+    /// Needed whenever the refinement mapping cannot be determined from
+    /// the current concrete state alone.
+    type AuxState;
+
+    /// The observable interface — the contract the refinement preserves.
+    type Observable: Clone + Eq + Debug;
 
     fn abstract_model(&self) -> &A;
 
@@ -25,7 +49,18 @@ where
         next_concrete: &C::State,
     ) -> Self::AuxState;
 
-    fn map_state(&self, concrete: &C::State, aux: &Self::AuxState) -> A::State;
+    /// The refinement mapping `f`: pick the abstract-state representative
+    /// for this `(concrete, aux)` pair. Load-bearing for L-simulation
+    /// search — the check needs a concrete `A::State` to pass to
+    /// `abstract_model.next_states(...)`.
+    fn refinement_map(&self, concrete: &C::State, aux: &Self::AuxState) -> A::State;
+
+    /// Project an abstract state to its observable interface. Called on
+    /// both sides of the refinement check:
+    ///
+    /// - concrete observations flow through `observe(refinement_map(c, aux))`
+    /// - abstract observations flow through `observe(a)` directly.
+    fn observe(&self, a: &A::State) -> Self::Observable;
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, PartialOrd)]
@@ -39,12 +74,14 @@ where
     aux_state: Map::AuxState,
     mapped_abstract_state: A::State,
 
-    // since "always" property will be checked after every state transition, we only need to store
-    // the prev and the cur state for refinement mapping check.
-    // prev is None when model state is the initial state. otherwise, it shouldn't be None.
+    // Since "always" properties are checked after every state transition, we
+    // only need the previous and current mapped abstract states to verify
+    // simulation. `prev` is `None` at initial states; non-`None` afterwards.
     prev_mapped_abstract_state: Option<A::State>,
 
-    // use this field to print out all the possible next states by providing the prev_mapped_abstract_state to the abstract model.
+    // Debug aid: all possible next abstract states reachable from
+    // `prev_mapped_abstract_state` via the abstract model. Useful for
+    // diagnosing which abstract transition (if any) matched.
     debug_from_prev_all: Vec<A::State>,
 }
 
@@ -53,66 +90,63 @@ pub struct RefinementModel<C, A, Map>
 where
     C: Model,
     A: Model,
-    A::State: PartialEq,
     Map: RefinementMapping<C, A>,
 {
     concrete: C,
     mapper: Map,
-    _phatom: PhantomData<A>,
+    _phantom: PhantomData<A>,
 }
 
 impl<C, A, Map> RefinementModel<C, A, Map>
 where
     C: Model,
     A: Model,
-    A::State: PartialEq,
     Map: RefinementMapping<C, A>,
 {
     pub fn new(concrete: C, mapper: Map) -> Self {
         Self {
             concrete,
             mapper,
-            _phatom: PhantomData,
+            _phantom: PhantomData,
         }
     }
 
     fn check_simulation(model: &Self, state: &RefinementModelState<C, A, Map>) -> bool {
         //
-        // (prev_mapped_abstract) ----------abstract_action-----------> (cur_mapped_abstract)
-        //          ^                                                           ^
-        //          |                                                           |
-        //          f                                                           f
-        //          |                                                           |
-        //          |                                                           |
-        // (prev_concrete, prev_aux) ---------concrete_action--------> (cur_concrete, cur_aux)
+        // (prev_mapped_abstract) ---------- abstract transition ---------> (cur_mapped_abstract)
+        //          ^                                                              ^
+        //          |                                                              |
+        //          f                                                              f
+        //          |                                                              |
+        //          |                                                              |
+        // (prev_concrete, prev_aux) --- concrete transition --> (cur_concrete, cur_aux)
         //
-        // To prove correspondence, we need to prove that:
-        // prev_mapped_abstract ------------abstract_action------------> mapped_abstract
-        //                                                                      ||
-        //                                                                      ||
-        // (prev_concrete, prev_aux) --> (cur_concrete, cur_aux) --f--> cur_mapped_abstract
+        // Weak L-simulation on `Observable`:
+        //   observe(prev_mapped_abstract) == observe(cur_mapped_abstract)    (stutter)
+        //   OR
+        //   there exists an abstract transition from `prev_mapped_abstract`
+        //   whose next state's observation equals
+        //   `observe(cur_mapped_abstract)`.
 
         let abstract_model = model.mapper.abstract_model();
-        let cur_mapped_abstract = &state.mapped_abstract_state;
+        let cur_abs = &state.mapped_abstract_state;
+        let cur_obs = model.mapper.observe(cur_abs);
+
         match &state.prev_mapped_abstract_state {
-            Some(prev_mapped_abstract) => {
-                if prev_mapped_abstract == cur_mapped_abstract {
-                    // stuttering step
+            Some(prev_abs) => {
+                if model.mapper.observe(prev_abs) == cur_obs {
+                    // stutter on the observable
                     return true;
                 }
-                // check L-simulation
                 abstract_model
-                    .next_states(prev_mapped_abstract)
+                    .next_states(prev_abs)
                     .iter()
-                    .any(|mapped_abstract| mapped_abstract == cur_mapped_abstract)
+                    .any(|next_abs| model.mapper.observe(next_abs) == cur_obs)
             }
-            None => {
-                // check if cur_mapped_abstract is a valid initial states of the abstract model
-                abstract_model
-                    .init_states()
-                    .iter()
-                    .any(|valid_init| valid_init == cur_mapped_abstract)
-            }
+            None => abstract_model
+                .init_states()
+                .iter()
+                .any(|init_abs| model.mapper.observe(init_abs) == cur_obs),
         }
     }
 
@@ -153,7 +187,7 @@ where
             .into_iter()
             .map(|concrete_state| {
                 let aux_state = self.mapper.init_aux_state(&concrete_state);
-                let mapped_abstract_state = self.mapper.map_state(&concrete_state, &aux_state);
+                let mapped_abstract_state = self.mapper.refinement_map(&concrete_state, &aux_state);
                 RefinementModelState {
                     concrete_state,
                     aux_state,
@@ -180,7 +214,7 @@ where
             &action,
             &next_concrete,
         );
-        let next_mapped_abstract = self.mapper.map_state(&next_concrete, &next_aux);
+        let next_mapped_abstract = self.mapper.refinement_map(&next_concrete, &next_aux);
 
         let debug_from_prev_all = self
             .mapper
@@ -219,18 +253,20 @@ where
             )
         };
 
-        let mut abstract_slots = HashMap::new();
-        let mut concrete_slots = HashMap::new();
+        // Concrete layer: dedup by full-state fingerprint.
+        // Abstract layer: dedup by Observable equivalence (linear scan).
+        // Middle layer: one node per step (no dedup).
+        let mut concrete_slots: HashMap<u64, usize> = HashMap::new();
 
-        let mut abstract_nodes = Vec::new();
-        let mut concrete_nodes = Vec::new();
-        let mut middle_nodes = Vec::new();
+        let mut abstract_nodes: Vec<(Map::Observable, NodeMeta)> = Vec::new();
+        let mut concrete_nodes: Vec<NodeMeta> = Vec::new();
+        let mut middle_nodes: Vec<NodeMeta> = Vec::new();
 
-        let mut abstract_path_slots = Vec::new();
-        let mut concrete_path_slots = Vec::new();
+        let mut abstract_path_slots: Vec<usize> = Vec::new();
+        let mut concrete_path_slots: Vec<usize> = Vec::new();
 
         for (step_idx, (state, _)) in steps.iter().enumerate() {
-            // Concrete (deduped)
+            // Concrete (deduped by fingerprint)
             let concrete_fp = fingerprint(&state.concrete_state).get();
             let concrete_slot = *concrete_slots.entry(concrete_fp).or_insert_with(|| {
                 let slot = concrete_nodes.len();
@@ -247,7 +283,7 @@ where
             });
             concrete_path_slots.push(concrete_slot);
 
-            // Concrete + Aux (per step)
+            // Concrete + Aux (per step, no dedup)
             let combo_fp =
                 fingerprint(&(state.concrete_state.clone(), state.aux_state.clone())).get();
             middle_nodes.push(NodeMeta {
@@ -263,21 +299,35 @@ where
                 ),
             });
 
-            // Abstract (deduped)
-            let abstract_fp = fingerprint(&state.mapped_abstract_state).get();
-            let abstract_slot = *abstract_slots.entry(abstract_fp).or_insert_with(|| {
-                let slot = abstract_nodes.len();
-                abstract_nodes.push(NodeMeta {
-                    label: format!("A{slot}"),
-                    title: build_title(
+            // Abstract (deduped by Observable equivalence via linear scan)
+            let obs = self.mapper.observe(&state.mapped_abstract_state);
+            let abstract_slot = match abstract_nodes
+                .iter()
+                .position(|(existing_obs, _)| *existing_obs == obs)
+            {
+                Some(slot) => slot,
+                None => {
+                    let slot = abstract_nodes.len();
+                    let abs_fp = fingerprint(&state.mapped_abstract_state).get();
+                    let title = build_title(
                         "Abstract",
                         slot,
-                        abstract_fp,
-                        format!("{:#?}", state.mapped_abstract_state),
-                    ),
-                });
-                slot
-            });
+                        abs_fp,
+                        format!(
+                            "Observable: {:#?}\n\nMapped abstract state: {:#?}",
+                            obs, state.mapped_abstract_state
+                        ),
+                    );
+                    abstract_nodes.push((
+                        obs.clone(),
+                        NodeMeta {
+                            label: format!("A{slot}"),
+                            title,
+                        },
+                    ));
+                    slot
+                }
+            };
             abstract_path_slots.push(abstract_slot);
         }
 
@@ -405,7 +455,7 @@ where
         }
 
         // Abstract nodes
-        for (slot_idx, node) in abstract_nodes.iter().enumerate() {
+        for (slot_idx, (_, node)) in abstract_nodes.iter().enumerate() {
             let x = left_padding + slot_idx * horizontal_gap;
             let _ = write!(
                 &mut svg,
@@ -454,5 +504,218 @@ where
 
         svg.push_str("</svg>");
         Some(svg)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Checker;
+
+    // ------------------------------------------------------------
+    // Toy concrete/abstract pair used by all tests below.
+    //
+    // Abstract: a monotonic counter plus an internal `ticks` field that
+    // increments on every step. `ticks` is "bookkeeping" — depending on
+    // the mapper's choice of Observable it may or may not be part of the
+    // refinement contract.
+    //
+    // Concrete: the same counter without `ticks` (the concrete doesn't
+    // track it). A mapper has to decide how to populate `ticks` in the
+    // mapped abstract state.
+    // ------------------------------------------------------------
+
+    #[derive(Clone, Debug, Hash, PartialEq, Eq)]
+    struct AbsState {
+        counter: u32,
+        ticks: u32,
+    }
+
+    #[derive(Clone, Debug, Hash, PartialEq, Eq)]
+    struct AbsAction;
+
+    #[derive(Clone, Debug, Hash, PartialEq, Eq)]
+    struct AbsModel {
+        max_counter: u32,
+    }
+
+    impl Model for AbsModel {
+        type State = AbsState;
+        type Action = AbsAction;
+
+        fn init_states(&self) -> Vec<Self::State> {
+            vec![AbsState {
+                counter: 0,
+                ticks: 0,
+            }]
+        }
+
+        fn actions(&self, state: &Self::State, actions: &mut Vec<Self::Action>) {
+            if state.counter < self.max_counter {
+                actions.push(AbsAction);
+            }
+        }
+
+        fn next_state(&self, last: &Self::State, _: Self::Action) -> Option<Self::State> {
+            Some(AbsState {
+                counter: last.counter + 1,
+                ticks: last.ticks + 1,
+            })
+        }
+    }
+
+    #[derive(Clone, Debug, Hash, PartialEq, Eq)]
+    struct ConState {
+        counter: u32,
+    }
+
+    #[derive(Clone, Debug, Hash, PartialEq, Eq)]
+    struct ConAction;
+
+    #[derive(Clone, Debug, Hash, PartialEq, Eq)]
+    struct ConModel {
+        max_counter: u32,
+    }
+
+    impl Model for ConModel {
+        type State = ConState;
+        type Action = ConAction;
+
+        fn init_states(&self) -> Vec<Self::State> {
+            vec![ConState { counter: 0 }]
+        }
+
+        fn actions(&self, state: &Self::State, actions: &mut Vec<Self::Action>) {
+            if state.counter < self.max_counter {
+                actions.push(ConAction);
+            }
+        }
+
+        fn next_state(&self, last: &Self::State, _: Self::Action) -> Option<Self::State> {
+            Some(ConState {
+                counter: last.counter + 1,
+            })
+        }
+    }
+
+    // --- Test 1: strict simulation (Observable = AbsState). The mapper
+    // sets `ticks = 0` always, which does NOT match the abstract's
+    // progression. Under the strict Observable this is visible and the
+    // check must fail. ---
+
+    #[derive(Clone, Debug, Hash, PartialEq, Eq)]
+    struct StrictGarbageMapper {
+        abstract_model: AbsModel,
+    }
+
+    impl RefinementMapping<ConModel, AbsModel> for StrictGarbageMapper {
+        type AuxState = ();
+        type Observable = AbsState;
+
+        fn abstract_model(&self) -> &AbsModel {
+            &self.abstract_model
+        }
+
+        fn init_aux_state(&self, _: &ConState) -> () {}
+        fn advance_aux_state(&self, _: &ConState, _: &(), _: &ConAction, _: &ConState) -> () {}
+
+        fn refinement_map(&self, c: &ConState, _: &()) -> AbsState {
+            AbsState {
+                counter: c.counter,
+                ticks: 0, // garbage
+            }
+        }
+
+        fn observe(&self, a: &AbsState) -> AbsState {
+            a.clone()
+        }
+    }
+
+    #[test]
+    fn strict_observable_fails_when_bookkeeping_diverges() {
+        let concrete = ConModel { max_counter: 3 };
+        let abstract_ = AbsModel { max_counter: 3 };
+        let mapper = StrictGarbageMapper {
+            abstract_model: abstract_,
+        };
+        let model = RefinementModel::new(concrete, mapper);
+        let checker = model.checker().spawn_bfs().join();
+        assert!(
+            checker.discovery("check_simulation").is_some(),
+            "strict Observable should fail when refinement_map produces garbage ticks"
+        );
+    }
+
+    // --- Test 2: weak simulation — Observable hides `ticks`. Same broken
+    // mapper logic as test 1, now the check passes because bookkeeping is
+    // invisible. ---
+
+    #[derive(Clone, Debug, Eq, PartialEq)]
+    struct CounterObs {
+        counter: u32,
+    }
+
+    #[derive(Clone, Debug, Hash, PartialEq, Eq)]
+    struct WeakTicksMapper {
+        abstract_model: AbsModel,
+    }
+
+    impl RefinementMapping<ConModel, AbsModel> for WeakTicksMapper {
+        type AuxState = ();
+        type Observable = CounterObs;
+
+        fn abstract_model(&self) -> &AbsModel {
+            &self.abstract_model
+        }
+
+        fn init_aux_state(&self, _: &ConState) -> () {}
+        fn advance_aux_state(&self, _: &ConState, _: &(), _: &ConAction, _: &ConState) -> () {}
+
+        fn refinement_map(&self, c: &ConState, _: &()) -> AbsState {
+            AbsState {
+                counter: c.counter,
+                ticks: 0, // still garbage — but ignored by `observe`
+            }
+        }
+
+        fn observe(&self, a: &AbsState) -> CounterObs {
+            CounterObs { counter: a.counter }
+        }
+    }
+
+    #[test]
+    fn weak_observable_passes_when_bookkeeping_hidden() {
+        let concrete = ConModel { max_counter: 3 };
+        let abstract_ = AbsModel { max_counter: 3 };
+        let mapper = WeakTicksMapper {
+            abstract_model: abstract_,
+        };
+        let model = RefinementModel::new(concrete, mapper);
+        let checker = model.checker().spawn_bfs().join();
+        assert!(
+            checker.discovery("check_simulation").is_none(),
+            "Observable projecting away `ticks` should accept the mapping"
+        );
+    }
+
+    // --- Test 3: L-simulation match via `observe` across a longer trace.
+    // Every concrete step must find an abstract transition whose next
+    // state's observation matches — exercising the `any` search, not
+    // just stutters. ---
+
+    #[test]
+    fn weak_observable_matches_abstract_transitions() {
+        let concrete = ConModel { max_counter: 8 };
+        let abstract_ = AbsModel { max_counter: 8 };
+        let mapper = WeakTicksMapper {
+            abstract_model: abstract_,
+        };
+        let model = RefinementModel::new(concrete, mapper);
+        let checker = model.checker().spawn_bfs().join();
+        assert!(
+            checker.discovery("check_simulation").is_none(),
+            "L-simulation should match via observe across the full trace"
+        );
+        assert!(checker.state_count() >= 8);
     }
 }

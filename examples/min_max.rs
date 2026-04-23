@@ -188,13 +188,13 @@ mod min_max1 {
 
     use crate::min_max2;
 
-    #[derive(Debug, Clone, Hash, PartialEq)]
+    #[derive(Debug, Clone, Hash, PartialEq, Eq)]
     pub(crate) enum Turn {
         Input,
         Output,
     }
 
-    #[derive(Debug, Clone, Hash, PartialEq)]
+    #[derive(Debug, Clone, Hash, PartialEq, Eq)]
     pub(crate) enum Response {
         Lo,
         Hi,
@@ -202,13 +202,13 @@ mod min_max1 {
         None,
     }
 
-    #[derive(Debug, Clone, Hash, PartialEq)]
+    #[derive(Debug, Clone, Hash, PartialEq, Eq)]
     pub(crate) enum XType {
         Input(usize),
         Output(Response),
     }
 
-    #[derive(Debug, Clone, Hash, PartialEq)]
+    #[derive(Debug, Clone, Hash, PartialEq, Eq)]
     pub(crate) struct MinMax1State {
         pub x: Option<XType>,
         pub turn: Turn,
@@ -217,13 +217,13 @@ mod min_max1 {
         pub idx: usize,
     }
 
-    #[derive(Debug, Clone, PartialEq)]
+    #[derive(Debug, Clone, PartialEq, Eq)]
     pub(crate) enum MinMax1Action {
         InputNum,
         Respond,
     }
 
-    #[derive(Debug, Clone, Hash, PartialEq)]
+    #[derive(Debug, Clone, Hash, PartialEq, Eq)]
     pub(crate) struct MinMax1 {
         pub user_input: Vec<usize>,
     }
@@ -338,13 +338,13 @@ mod min_max2 {
 
     use crate::min_max1;
 
-    #[derive(Debug, Clone, Hash, PartialEq)]
+    #[derive(Debug, Clone, Hash, PartialEq, Eq)]
     pub(crate) enum Turn {
         Input,
         Output,
     }
 
-    #[derive(Debug, Clone, Hash, PartialEq)]
+    #[derive(Debug, Clone, Hash, PartialEq, Eq)]
     pub(crate) enum Response {
         Lo,
         Hi,
@@ -352,13 +352,13 @@ mod min_max2 {
         None,
     }
 
-    #[derive(Debug, Clone, Hash, PartialEq)]
+    #[derive(Debug, Clone, Hash, PartialEq, Eq)]
     pub(crate) enum XType {
         Input(usize),
         Output(Response),
     }
 
-    #[derive(Debug, Clone, Hash, PartialEq)]
+    #[derive(Debug, Clone, Hash, PartialEq, Eq)]
     pub(crate) struct MinMax2State {
         pub x: Option<XType>,
         pub turn: Turn,
@@ -368,13 +368,13 @@ mod min_max2 {
         pub idx: usize,
     }
 
-    #[derive(Debug, Clone, PartialEq)]
+    #[derive(Debug, Clone, PartialEq, Eq)]
     pub(crate) enum MinMax2Action {
         InputNum,
         Respond,
     }
 
-    #[derive(Debug, Clone, Hash, PartialEq)]
+    #[derive(Debug, Clone, Hash, PartialEq, Eq)]
     pub(crate) struct MinMax2 {
         pub user_input: Vec<usize>,
     }
@@ -489,7 +489,7 @@ mod one_refine_two {
 
     use crate::{min_max1::*, min_max2::*};
 
-    #[derive(Debug, Hash, Clone, PartialEq)]
+    #[derive(Debug, Hash, Clone, PartialEq, Eq)]
     pub(crate) struct Mapper1to2 {
         abstract_model: MinMax2,
     }
@@ -500,6 +500,7 @@ mod one_refine_two {
     ///         max <- IF y = {} THEN MinusInfinity ELSE setMax(y).
     impl RefinementMapping<MinMax1, MinMax2> for Mapper1to2 {
         type AuxState = ();
+        type Observable = MinMax2State;
 
         fn abstract_model(&self) -> &MinMax2 {
             &self.abstract_model
@@ -522,7 +523,7 @@ mod one_refine_two {
             ()
         }
 
-        fn map_state(
+        fn refinement_map(
             &self,
             concrete: &<MinMax1 as stateright::Model>::State,
             _aux: &Self::AuxState,
@@ -534,6 +535,10 @@ mod one_refine_two {
                 max: *concrete.y.iter().max().unwrap_or(&usize::MIN),
                 idx: concrete.idx,
             }
+        }
+
+        fn observe(&self, a: &MinMax2State) -> MinMax2State {
+            a.clone()
         }
     }
 
@@ -587,7 +592,7 @@ mod two_refine_one {
         min_max2::{MinMax2, MinMax2Action, XType},
     };
 
-    #[derive(Debug, Hash, Clone, PartialEq)]
+    #[derive(Debug, Hash, Clone, PartialEq, Eq)]
     pub(crate) struct Mapper2to1 {
         abstract_model: MinMax1,
     }
@@ -602,6 +607,7 @@ mod two_refine_one {
 
     impl RefinementMapping<MinMax2, MinMax1> for Mapper2to1 {
         type AuxState = History;
+        type Observable = MinMax1State;
 
         fn abstract_model(&self) -> &MinMax1 {
             &self.abstract_model
@@ -652,7 +658,7 @@ mod two_refine_one {
             new_aux
         }
 
-        fn map_state(
+        fn refinement_map(
             &self,
             concrete: &<MinMax2 as stateright::Model>::State,
             aux: &Self::AuxState,
@@ -663,6 +669,10 @@ mod two_refine_one {
                 y: aux.clone(),
                 idx: concrete.idx,
             }
+        }
+
+        fn observe(&self, a: &MinMax1State) -> MinMax1State {
+            a.clone()
         }
     }
 

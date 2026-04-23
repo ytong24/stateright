@@ -149,24 +149,24 @@
 mod abstract_model {
     use stateright::Model;
 
-    #[derive(Debug, Clone, Hash, PartialEq)]
+    #[derive(Debug, Clone, Hash, PartialEq, Eq)]
     pub(crate) enum CounterAction {
         Trans(usize), // Transfer the TransitionState of the thread with usize index.
     }
 
-    #[derive(Debug, Clone, Hash, PartialEq)]
+    #[derive(Debug, Clone, Hash, PartialEq, Eq)]
     pub(crate) enum TransitionState {
         Start,
         Done,
     }
 
-    #[derive(Debug, Clone, Hash, PartialEq)]
+    #[derive(Debug, Clone, Hash, PartialEq, Eq)]
     pub(crate) struct CounterState {
         pub pc: Vec<TransitionState>,
         pub counter: usize,
     }
 
-    #[derive(Debug, Clone, Hash, PartialEq)]
+    #[derive(Debug, Clone, Hash, PartialEq, Eq)]
     pub(crate) struct Counter {
         pub threads: usize,
     }
@@ -223,27 +223,27 @@ mod abstract_model {
 mod bad_impl {
     use stateright::Model;
 
-    #[derive(Debug, Clone, Hash, PartialEq)]
+    #[derive(Debug, Clone, Hash, PartialEq, Eq)]
     pub(crate) enum CounterAction {
         GetCounter(usize), // get the global counter to update the thread's local counter
         IncCounter(usize), // update the global counter based on the thread's local counter
     }
 
-    #[derive(Debug, Clone, Hash, PartialEq)]
+    #[derive(Debug, Clone, Hash, PartialEq, Eq)]
     pub(crate) enum TransitionState {
         Start,
         Inc,
         Done,
     }
 
-    #[derive(Debug, Clone, Hash, PartialEq)]
+    #[derive(Debug, Clone, Hash, PartialEq, Eq)]
     pub(crate) struct CounterState {
         pub pc: Vec<TransitionState>,
         pub counter: usize,
         pub tmp: Vec<usize>, // local counter for each thread
     }
 
-    #[derive(Debug, Clone, Hash, PartialEq)]
+    #[derive(Debug, Clone, Hash, PartialEq, Eq)]
     pub(crate) struct Counter {
         pub threads: usize,
     }
@@ -306,20 +306,20 @@ mod good_impl {
 
     use stateright::Model;
 
-    #[derive(Debug, Clone, Hash, PartialEq)]
+    #[derive(Debug, Clone, Hash, PartialEq, Eq)]
     pub(crate) enum CounterAction {
         LockAndGetCounter(usize),
         ReleaseAndIncCounter(usize),
     }
 
-    #[derive(Debug, Clone, Hash, PartialEq)]
+    #[derive(Debug, Clone, Hash, PartialEq, Eq)]
     pub(crate) enum TransitionState {
         Start,
         Inc,
         Done,
     }
 
-    #[derive(Debug, Clone, Hash, PartialEq)]
+    #[derive(Debug, Clone, Hash, PartialEq, Eq)]
     pub(crate) struct CounterState {
         pub pc: Vec<TransitionState>,
         pub counter: usize,
@@ -327,7 +327,7 @@ mod good_impl {
         pub lock: usize, // indicate which thread is holding the lock. if it's free, set the value to usize::MAX.
     }
 
-    #[derive(Debug, Clone, Hash, PartialEq)]
+    #[derive(Debug, Clone, Hash, PartialEq, Eq)]
     pub(crate) struct Counter {
         pub threads: usize,
     }
@@ -401,7 +401,7 @@ mod try_bad_refine_abstract {
 
     use crate::{abstract_model, bad_impl};
 
-    #[derive(Debug, Hash, Clone, PartialEq)]
+    #[derive(Debug, Hash, Clone, PartialEq, Eq)]
     pub(crate) struct Bad2AbstractMapper {
         abstract_model: abstract_model::Counter,
     }
@@ -416,6 +416,7 @@ mod try_bad_refine_abstract {
     //       ]
     impl RefinementMapping<bad_impl::Counter, abstract_model::Counter> for Bad2AbstractMapper {
         type AuxState = ();
+        type Observable = abstract_model::CounterState;
 
         fn abstract_model(&self) -> &abstract_model::Counter {
             &self.abstract_model
@@ -438,7 +439,7 @@ mod try_bad_refine_abstract {
             ()
         }
 
-        fn map_state(
+        fn refinement_map(
             &self,
             concrete: &<bad_impl::Counter as stateright::Model>::State,
             _aux: &Self::AuxState,
@@ -455,6 +456,13 @@ mod try_bad_refine_abstract {
                     .collect(),
                 counter: concrete.counter,
             }
+        }
+
+        fn observe(
+            &self,
+            a: &abstract_model::CounterState,
+        ) -> abstract_model::CounterState {
+            a.clone()
         }
     }
 
@@ -490,7 +498,7 @@ mod good_refine_abstract {
 
     use crate::{abstract_model, good_impl};
 
-    #[derive(Debug, Hash, Clone, PartialEq)]
+    #[derive(Debug, Hash, Clone, PartialEq, Eq)]
     pub(crate) struct Good2AbstractMapper {
         abstract_model: abstract_model::Counter,
     }
@@ -505,6 +513,7 @@ mod good_refine_abstract {
     //       ]
     impl RefinementMapping<good_impl::Counter, abstract_model::Counter> for Good2AbstractMapper {
         type AuxState = ();
+        type Observable = abstract_model::CounterState;
 
         fn abstract_model(&self) -> &abstract_model::Counter {
             &self.abstract_model
@@ -527,7 +536,7 @@ mod good_refine_abstract {
             ()
         }
 
-        fn map_state(
+        fn refinement_map(
             &self,
             concrete: &<good_impl::Counter as stateright::Model>::State,
             _aux: &Self::AuxState,
@@ -544,6 +553,13 @@ mod good_refine_abstract {
                     .collect(),
                 counter: concrete.counter,
             }
+        }
+
+        fn observe(
+            &self,
+            a: &abstract_model::CounterState,
+        ) -> abstract_model::CounterState {
+            a.clone()
         }
     }
 
@@ -579,7 +595,7 @@ mod good_refine_bad {
 
     use crate::{bad_impl, good_impl};
 
-    #[derive(Debug, Hash, Clone, PartialEq)]
+    #[derive(Debug, Hash, Clone, PartialEq, Eq)]
     pub(crate) struct Good2BadMapper {
         abstract_model: bad_impl::Counter,
     }
@@ -587,6 +603,7 @@ mod good_refine_bad {
     // no auxiliary state is needed
     impl RefinementMapping<good_impl::Counter, bad_impl::Counter> for Good2BadMapper {
         type AuxState = ();
+        type Observable = bad_impl::CounterState;
 
         fn abstract_model(&self) -> &bad_impl::Counter {
             &self.abstract_model
@@ -609,7 +626,7 @@ mod good_refine_bad {
             ()
         }
 
-        fn map_state(
+        fn refinement_map(
             &self,
             concrete: &<good_impl::Counter as stateright::Model>::State,
             _aux: &Self::AuxState,
@@ -627,6 +644,10 @@ mod good_refine_bad {
                 counter: concrete.counter,
                 tmp: concrete.tmp.clone(),
             }
+        }
+
+        fn observe(&self, a: &bad_impl::CounterState) -> bad_impl::CounterState {
+            a.clone()
         }
     }
 
