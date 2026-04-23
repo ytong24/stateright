@@ -161,7 +161,7 @@ mod strict {
             &self.abstract_model
         }
 
-        fn init_aux_state(&self, _: &concrete_model::State) -> () {}
+        fn init_aux_state(&self, _: &concrete_model::State) {}
 
         fn advance_aux_state(
             &self,
@@ -169,14 +169,10 @@ mod strict {
             _: &(),
             _: &concrete_model::Action,
             _: &concrete_model::State,
-        ) -> () {
+        ) {
         }
 
-        fn refinement_map(
-            &self,
-            c: &concrete_model::State,
-            _: &(),
-        ) -> abstract_model::State {
+        fn refinement_map(&self, c: &concrete_model::State, _: &()) -> abstract_model::State {
             abstract_model::State {
                 pc: project_pc(&c.pc),
                 counter: c.counter,
@@ -192,9 +188,15 @@ mod strict {
     }
 
     pub fn run_check(num_threads: usize) {
-        let concrete = concrete_model::Counter { threads: num_threads };
-        let abstract_ = abstract_model::Counter { threads: num_threads };
-        let mapper = Mapper { abstract_model: abstract_ };
+        let concrete = concrete_model::Counter {
+            threads: num_threads,
+        };
+        let abstract_ = abstract_model::Counter {
+            threads: num_threads,
+        };
+        let mapper = Mapper {
+            abstract_model: abstract_,
+        };
         let model = RefinementModel::new(concrete, mapper);
         let checker = model.checker().threads(num_cpus::get()).spawn_bfs().join();
         match checker.discovery("check_simulation") {
@@ -209,11 +211,20 @@ mod strict {
     }
 
     pub fn run_serve(num_threads: usize) {
-        let concrete = concrete_model::Counter { threads: num_threads };
-        let abstract_ = abstract_model::Counter { threads: num_threads };
-        let mapper = Mapper { abstract_model: abstract_ };
+        let concrete = concrete_model::Counter {
+            threads: num_threads,
+        };
+        let abstract_ = abstract_model::Counter {
+            threads: num_threads,
+        };
+        let mapper = Mapper {
+            abstract_model: abstract_,
+        };
         let model = RefinementModel::new(concrete, mapper);
-        model.checker().threads(num_cpus::get()).serve("127.0.0.1:3000");
+        model
+            .checker()
+            .threads(num_cpus::get())
+            .serve("127.0.0.1:3000");
     }
 }
 
@@ -244,7 +255,7 @@ mod weak {
             &self.abstract_model
         }
 
-        fn init_aux_state(&self, _: &concrete_model::State) -> () {}
+        fn init_aux_state(&self, _: &concrete_model::State) {}
 
         fn advance_aux_state(
             &self,
@@ -252,14 +263,10 @@ mod weak {
             _: &(),
             _: &concrete_model::Action,
             _: &concrete_model::State,
-        ) -> () {
+        ) {
         }
 
-        fn refinement_map(
-            &self,
-            c: &concrete_model::State,
-            _: &(),
-        ) -> abstract_model::State {
+        fn refinement_map(&self, c: &concrete_model::State, _: &()) -> abstract_model::State {
             abstract_model::State {
                 pc: project_pc(&c.pc),
                 counter: c.counter,
@@ -276,28 +283,41 @@ mod weak {
     }
 
     pub fn run_check(num_threads: usize) {
-        let concrete = concrete_model::Counter { threads: num_threads };
-        let abstract_ = abstract_model::Counter { threads: num_threads };
-        let mapper = Mapper { abstract_model: abstract_ };
+        let concrete = concrete_model::Counter {
+            threads: num_threads,
+        };
+        let abstract_ = abstract_model::Counter {
+            threads: num_threads,
+        };
+        let mapper = Mapper {
+            abstract_model: abstract_,
+        };
         let model = RefinementModel::new(concrete, mapper);
         let checker = model.checker().threads(num_cpus::get()).spawn_bfs().join();
         match checker.discovery("check_simulation") {
             Some(_) => println!(
                 "  Refinement FAILED — unexpected, `last_actor` should be hidden by Observable."
             ),
-            None => println!(
-                "  Refinement passed (expected for weak Observable)."
-            ),
+            None => println!("  Refinement passed (expected for weak Observable)."),
         }
         println!("  State count: {}", checker.state_count());
     }
 
     pub fn run_serve(num_threads: usize) {
-        let concrete = concrete_model::Counter { threads: num_threads };
-        let abstract_ = abstract_model::Counter { threads: num_threads };
-        let mapper = Mapper { abstract_model: abstract_ };
+        let concrete = concrete_model::Counter {
+            threads: num_threads,
+        };
+        let abstract_ = abstract_model::Counter {
+            threads: num_threads,
+        };
+        let mapper = Mapper {
+            abstract_model: abstract_,
+        };
         let model = RefinementModel::new(concrete, mapper);
-        model.checker().threads(num_cpus::get()).serve("127.0.0.1:3000");
+        model
+            .checker()
+            .threads(num_cpus::get())
+            .serve("127.0.0.1:3000");
     }
 }
 
@@ -316,20 +336,18 @@ fn main() -> Result<(), pico_args::Error> {
             weak::run_check(num_threads);
         }
         Some("strict-serve") => {
-            println!(
-                "Strict Observable — serving counterexample SVG at http://127.0.0.1:3000"
-            );
+            println!("Strict Observable — serving counterexample SVG at http://127.0.0.1:3000");
             strict::run_serve(num_threads);
         }
         Some("weak-serve") => {
-            println!(
-                "Weak Observable — serving at http://127.0.0.1:3000"
-            );
+            println!("Weak Observable — serving at http://127.0.0.1:3000");
             weak::run_serve(num_threads);
         }
         _ => {
             println!("USAGE:");
-            println!("  ./weak_counter strict          # check strict Observable (expected to fail)");
+            println!(
+                "  ./weak_counter strict          # check strict Observable (expected to fail)"
+            );
             println!("  ./weak_counter weak            # check weak Observable (expected to pass)");
             println!("  ./weak_counter strict-serve    # serve counterexample SVG on port 3000");
             println!("  ./weak_counter weak-serve      # serve SVG on port 3000");

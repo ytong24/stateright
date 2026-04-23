@@ -329,10 +329,7 @@ mod min_max1 {
 }
 
 mod min_max2 {
-    use std::{
-        cmp::{max, min},
-        usize,
-    };
+    use std::cmp::{max, min};
 
     use stateright::Model;
 
@@ -510,7 +507,6 @@ mod one_refine_two {
             &self,
             _concrete: &<MinMax1 as stateright::Model>::State,
         ) -> Self::AuxState {
-            ()
         }
 
         fn advance_aux_state(
@@ -520,7 +516,6 @@ mod one_refine_two {
             _action: &<MinMax1 as stateright::Model>::Action,
             _next_concrete: &<MinMax1 as stateright::Model>::State,
         ) -> Self::AuxState {
-            ()
         }
 
         fn refinement_map(
@@ -553,12 +548,11 @@ mod one_refine_two {
             abstract_model: abstractt,
         };
         let refinement_model = RefinementModel::new(concrete, mapper);
-        let checker = refinement_model
+
+        refinement_model
             .checker()
             .threads(num_cpus::get())
-            .spawn_dfs();
-
-        checker
+            .spawn_dfs()
     }
 
     pub fn refinement_serve(
@@ -572,12 +566,11 @@ mod one_refine_two {
             abstract_model: abstractt,
         };
         let refinement_model = RefinementModel::new(concrete, mapper);
-        let checker = refinement_model
+
+        refinement_model
             .checker()
             .threads(num_cpus::get())
-            .serve("127.0.0.1:3000");
-
-        checker
+            .serve("127.0.0.1:3000")
     }
 }
 
@@ -597,12 +590,11 @@ mod two_refine_one {
         abstract_model: MinMax1,
     }
 
-    /// we need auxiliary state to have refinement mapping from MinMax2 to MinMax1,
-    /// because MinMax2 only stores the min and max, while MinMax1 stores all the history.
-    /// so, our auxiliary state for MinMax2 is basically a history that store all the values MinMax2 has seen so far.
-    ///
-    /// M == INSTANCE MinMax1 WITH y <- h
-
+    // we need auxiliary state to have refinement mapping from MinMax2 to MinMax1,
+    // because MinMax2 only stores the min and max, while MinMax1 stores all the history.
+    // so, our auxiliary state for MinMax2 is basically a history that store all the values MinMax2 has seen so far.
+    //
+    // M == INSTANCE MinMax1 WITH y <- h
     type History = Vec<usize>;
 
     impl RefinementMapping<MinMax2, MinMax1> for Mapper2to1 {
@@ -687,12 +679,11 @@ mod two_refine_one {
             abstract_model: abstractt,
         };
         let refinement_model = RefinementModel::new(concrete, mapper);
-        let checker = refinement_model
+
+        refinement_model
             .checker()
             .threads(num_cpus::get())
-            .spawn_dfs();
-
-        checker
+            .spawn_dfs()
     }
 
     pub fn refinement_serve(
@@ -706,12 +697,11 @@ mod two_refine_one {
             abstract_model: abstractt,
         };
         let refinement_model = RefinementModel::new(concrete, mapper);
-        let checker = refinement_model
+
+        refinement_model
             .checker()
             .threads(num_cpus::get())
-            .serve("127.0.0.1:3000");
-
-        checker
+            .serve("127.0.0.1:3000")
     }
 }
 

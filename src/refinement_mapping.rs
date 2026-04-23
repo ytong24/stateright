@@ -616,8 +616,8 @@ mod tests {
             &self.abstract_model
         }
 
-        fn init_aux_state(&self, _: &ConState) -> () {}
-        fn advance_aux_state(&self, _: &ConState, _: &(), _: &ConAction, _: &ConState) -> () {}
+        fn init_aux_state(&self, _: &ConState) {}
+        fn advance_aux_state(&self, _: &ConState, _: &(), _: &ConAction, _: &ConState) {}
 
         fn refinement_map(&self, c: &ConState, _: &()) -> AbsState {
             AbsState {
@@ -668,8 +668,8 @@ mod tests {
             &self.abstract_model
         }
 
-        fn init_aux_state(&self, _: &ConState) -> () {}
-        fn advance_aux_state(&self, _: &ConState, _: &(), _: &ConAction, _: &ConState) -> () {}
+        fn init_aux_state(&self, _: &ConState) {}
+        fn advance_aux_state(&self, _: &ConState, _: &(), _: &ConAction, _: &ConState) {}
 
         fn refinement_map(&self, c: &ConState, _: &()) -> AbsState {
             AbsState {

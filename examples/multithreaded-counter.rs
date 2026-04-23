@@ -302,8 +302,6 @@ mod bad_impl {
 }
 
 mod good_impl {
-    use std::usize;
-
     use stateright::Model;
 
     #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -347,7 +345,7 @@ mod good_impl {
         }
 
         fn actions(&self, state: &Self::State, actions: &mut Vec<Self::Action>) {
-            (0..self.threads).into_iter().for_each(|idx| {
+            (0..self.threads).for_each(|idx| {
                 // if transition state is Start and lock is MAX, we can perform LockAndGetCounter action
                 if state.pc[idx] == TransitionState::Start && state.lock == usize::MAX {
                     actions.push(CounterAction::LockAndGetCounter(idx));
@@ -356,7 +354,6 @@ mod good_impl {
                 // if transition state is Inc and lock is me, we can perform ReleaseAndIncCounter action
                 if state.pc[idx] == TransitionState::Inc && state.lock == idx {
                     actions.push(CounterAction::ReleaseAndIncCounter(idx));
-                    return;
                 }
                 // otherwise, no action can be performed
             });
@@ -426,7 +423,6 @@ mod try_bad_refine_abstract {
             &self,
             _concrete: &<bad_impl::Counter as stateright::Model>::State,
         ) -> Self::AuxState {
-            ()
         }
 
         fn advance_aux_state(
@@ -436,7 +432,6 @@ mod try_bad_refine_abstract {
             _action: &<bad_impl::Counter as stateright::Model>::Action,
             _next_concrete: &<bad_impl::Counter as stateright::Model>::State,
         ) -> Self::AuxState {
-            ()
         }
 
         fn refinement_map(
@@ -458,10 +453,7 @@ mod try_bad_refine_abstract {
             }
         }
 
-        fn observe(
-            &self,
-            a: &abstract_model::CounterState,
-        ) -> abstract_model::CounterState {
+        fn observe(&self, a: &abstract_model::CounterState) -> abstract_model::CounterState {
             a.clone()
         }
     }
@@ -481,12 +473,11 @@ mod try_bad_refine_abstract {
             abstract_model: abstractt,
         };
         let refinement_model = RefinementModel::new(concrete, mapper);
-        let checker = refinement_model
+
+        refinement_model
             .checker()
             .threads(num_cpus::get())
-            .serve("127.0.0.1:3000");
-
-        checker
+            .serve("127.0.0.1:3000")
     }
 }
 
@@ -523,7 +514,6 @@ mod good_refine_abstract {
             &self,
             _concrete: &<good_impl::Counter as stateright::Model>::State,
         ) -> Self::AuxState {
-            ()
         }
 
         fn advance_aux_state(
@@ -533,7 +523,6 @@ mod good_refine_abstract {
             _action: &<good_impl::Counter as stateright::Model>::Action,
             _next_concrete: &<good_impl::Counter as stateright::Model>::State,
         ) -> Self::AuxState {
-            ()
         }
 
         fn refinement_map(
@@ -555,10 +544,7 @@ mod good_refine_abstract {
             }
         }
 
-        fn observe(
-            &self,
-            a: &abstract_model::CounterState,
-        ) -> abstract_model::CounterState {
+        fn observe(&self, a: &abstract_model::CounterState) -> abstract_model::CounterState {
             a.clone()
         }
     }
@@ -578,12 +564,11 @@ mod good_refine_abstract {
             abstract_model: abstractt,
         };
         let refinement_model = RefinementModel::new(concrete, mapper);
-        let checker = refinement_model
+
+        refinement_model
             .checker()
             .threads(num_cpus::get())
-            .serve("127.0.0.1:3000");
-
-        checker
+            .serve("127.0.0.1:3000")
     }
 }
 
@@ -613,7 +598,6 @@ mod good_refine_bad {
             &self,
             _concrete: &<good_impl::Counter as stateright::Model>::State,
         ) -> Self::AuxState {
-            ()
         }
 
         fn advance_aux_state(
@@ -623,7 +607,6 @@ mod good_refine_bad {
             _action: &<good_impl::Counter as stateright::Model>::Action,
             _next_concrete: &<good_impl::Counter as stateright::Model>::State,
         ) -> Self::AuxState {
-            ()
         }
 
         fn refinement_map(
@@ -666,12 +649,11 @@ mod good_refine_bad {
             abstract_model: abstractt,
         };
         let refinement_model = RefinementModel::new(concrete, mapper);
-        let checker = refinement_model
+
+        refinement_model
             .checker()
             .threads(num_cpus::get())
-            .serve("127.0.0.1:3000");
-
-        checker
+            .serve("127.0.0.1:3000")
     }
 }
 
