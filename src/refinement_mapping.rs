@@ -63,7 +63,7 @@ where
     fn observe(&self, a: &A::State) -> Self::Observable;
 }
 
-#[derive(Debug, Clone, Hash, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, Hash, PartialEq)]
 pub struct RefinementModelState<C, A, Map>
 where
     C: Model,
@@ -78,11 +78,6 @@ where
     // only need the previous and current mapped abstract states to verify
     // simulation. `prev` is `None` at initial states; non-`None` afterwards.
     prev_mapped_abstract_state: Option<A::State>,
-
-    // Debug aid: all possible next abstract states reachable from
-    // `prev_mapped_abstract_state` via the abstract model. Useful for
-    // diagnosing which abstract transition (if any) matched.
-    debug_from_prev_all: Vec<A::State>,
 }
 
 #[derive(Debug)]
@@ -101,6 +96,7 @@ impl<C, A, Map> RefinementModel<C, A, Map>
 where
     C: Model,
     A: Model,
+    A::State: PartialEq,
     Map: RefinementMapping<C, A>,
 {
     pub fn new(concrete: C, mapper: Map) -> Self {
@@ -130,12 +126,18 @@ where
 
         let abstract_model = model.mapper.abstract_model();
         let cur_abs = &state.mapped_abstract_state;
-        let cur_obs = model.mapper.observe(cur_abs);
 
         match &state.prev_mapped_abstract_state {
             Some(prev_abs) => {
+                // Fast path: if the mapped abstract states are fully identical,
+                // it's a stutter regardless of the observable — no observe() call
+                // and no next_states allocation needed.
+                if prev_abs == cur_abs {
+                    return true;
+                }
+                let cur_obs = model.mapper.observe(cur_abs);
                 if model.mapper.observe(prev_abs) == cur_obs {
-                    // stutter on the observable
+                    // observable-level stutter (weak-sim case)
                     return true;
                 }
                 abstract_model
@@ -143,10 +145,13 @@ where
                     .iter()
                     .any(|next_abs| model.mapper.observe(next_abs) == cur_obs)
             }
-            None => abstract_model
-                .init_states()
-                .iter()
-                .any(|init_abs| model.mapper.observe(init_abs) == cur_obs),
+            None => {
+                let cur_obs = model.mapper.observe(cur_abs);
+                abstract_model
+                    .init_states()
+                    .iter()
+                    .any(|init_abs| model.mapper.observe(init_abs) == cur_obs)
+            }
         }
     }
 
@@ -193,7 +198,6 @@ where
                     aux_state,
                     mapped_abstract_state,
                     prev_mapped_abstract_state: None,
-                    debug_from_prev_all: vec![],
                 }
             })
             .collect()
@@ -216,17 +220,11 @@ where
         );
         let next_mapped_abstract = self.mapper.refinement_map(&next_concrete, &next_aux);
 
-        let debug_from_prev_all = self
-            .mapper
-            .abstract_model()
-            .next_states(&last_state.mapped_abstract_state);
-
         Some(RefinementModelState {
             concrete_state: next_concrete,
             aux_state: next_aux,
             mapped_abstract_state: next_mapped_abstract,
             prev_mapped_abstract_state: Some(last_state.mapped_abstract_state.clone()),
-            debug_from_prev_all,
         })
     }
 
